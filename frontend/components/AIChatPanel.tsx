@@ -61,6 +61,19 @@ Always ground advice in the current section of the proposal workflow and encoura
 type ProposalFieldKey = keyof ProposalData;
 
 const SECTION_FIELD_CONFIG: Record<number, { fields: ProposalFieldKey[]; fallback?: ProposalFieldKey }> = {
+  0: {
+    fields: [
+      'projectTitle',
+      'organizationName',
+      'executiveSummary',
+      'problemDescription',
+      'expectedOutcomes',
+      'objective1',
+      'communityBackground',
+      'needsChallenges',
+    ],
+    fallback: 'executiveSummary',
+  },
   1: {
     fields: [
       'projectTitle',
@@ -197,6 +210,7 @@ export function AIChatPanel({ currentSection, onClose, hasExistingDraft }: AICha
   const [textInput, setTextInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isQuickStartComplete, setIsQuickStartComplete] = useState(false);
   const [isAudioMuted, setIsAudioMuted] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -209,17 +223,28 @@ export function AIChatPanel({ currentSection, onClose, hasExistingDraft }: AICha
   }, [messages]);
 
   useEffect(() => {
-    // Initialize with welcome message
+    // Initialize with welcome + quick-start prompt
+    const now = Date.now();
     const welcomeMessage: Message = {
-      id: '1',
+      id: `${now}-welcome`,
       type: 'ai',
-      content: hasExistingDraft 
-        ? "Hello! I've reviewed your existing draft. I'm here to help you improve it section by section. Let's start with the Cover Page. What aspects would you like to enhance?"
-        : "Hello! I'm your AI Grant Assistant. I'll guide you through creating a professional proposal. Let's start with the Cover Page - I'll help you gather the essential information. What's your project about?",
+      content: hasExistingDraft
+        ? "Hello! I've reviewed your existing draft. Before we refine each section, let's make sure I understand your current goals."
+        : "Hello! I'm your AI Grant Assistant. I'll help you craft a strong proposal, but first I'd love to understand the big picture.",
       timestamp: new Date(),
     };
-    setMessages([welcomeMessage]);
+
+    const quickStartMessage: Message = {
+      id: `${now + 1}-quickstart`,
+      type: 'ai',
+      content:
+        "Quick start question: In a few sentences, what's the goal of your project, who will benefit, and why it matters right now? I'll draft a starting proposal outline from your answer before we dive into each section.",
+      timestamp: new Date(),
+    };
+
+    setMessages([welcomeMessage, quickStartMessage]);
     setErrorMessage(null);
+    setIsQuickStartComplete(false);
   }, [hasExistingDraft]);
 
   useEffect(() => {
@@ -310,13 +335,35 @@ export function AIChatPanel({ currentSection, onClose, hasExistingDraft }: AICha
         return;
       }
 
+      if (section === 0) {
+        const hasSubstantialContent = Object.values(updates).some((value) => value.length >= 40);
+        if (!hasSubstantialContent) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `${Date.now()}-quickstart-more-info`,
+              type: 'system',
+              content:
+                "Thanks for sharing! I still need a bit more detail—try describing the project goal, who benefits, and why it matters so I can draft an initial outline for you.",
+              timestamp: new Date(),
+            },
+          ]);
+          return;
+        }
+      }
+
+      const labelSummary = updatedLabels.length === 1 ? updatedLabels[0] : updatedLabels.join(', ');
+      const actionText =
+        section === 0
+          ? `Quick-start draft ready for ${labelSummary}. Apply these AI-generated details to jumpstart your proposal?`
+          : updatedLabels.length === 1
+            ? `The assistant drafted an update for ${labelSummary}.`
+            : `The assistant drafted updates for ${labelSummary}.`;
+
       const actionMessage: Message = {
         id: `${Date.now()}-auto-fill`,
         type: 'action',
-        content:
-          updatedLabels.length === 1
-            ? `The assistant drafted an update for ${updatedLabels[0]}.`
-            : `The assistant drafted updates for ${updatedLabels.join(', ')}.`,
+        content: actionText,
         timestamp: new Date(),
         pendingUpdates: {
           updates,
@@ -334,8 +381,9 @@ export function AIChatPanel({ currentSection, onClose, hasExistingDraft }: AICha
     (messageId: string, pending: NonNullable<Message['pendingUpdates']>) => {
       updateMultipleFields(pending.updates);
 
+      const appliedAt = Date.now();
       const confirmation: Message = {
-        id: `${Date.now()}-apply`,
+        id: `${appliedAt}-apply`,
         type: 'system',
         content:
           pending.labels.length === 1
@@ -344,30 +392,58 @@ export function AIChatPanel({ currentSection, onClose, hasExistingDraft }: AICha
         timestamp: new Date(),
       };
 
+      const followUps: Message[] = [confirmation];
+
+      if (pending.section === 0 && !isQuickStartComplete) {
+        setIsQuickStartComplete(true);
+        followUps.push({
+          id: `${appliedAt + 1}-quickstart-complete`,
+          type: 'system',
+          content: '🚀 Quick start complete! Head to Section 1 (Cover Page) to review and fine-tune the draft details.',
+          timestamp: new Date(),
+        });
+      }
+
       setMessages((prev) => {
         const withoutPrompt = prev.filter((message) => message.id !== messageId);
-        return [...withoutPrompt, confirmation];
+        return [...withoutPrompt, ...followUps];
       });
     },
-    [updateMultipleFields],
+    [isQuickStartComplete, updateMultipleFields],
   );
 
-  const handleSkipPendingUpdates = useCallback((messageId: string, labels: string[]) => {
-    const skipMessage: Message = {
-      id: `${Date.now()}-skip`,
-      type: 'system',
-      content:
-        labels.length === 1
-          ? `⏭️ Skipped auto-fill for ${labels[0]}.`
-          : `⏭️ Skipped auto-fill for: ${labels.join(', ')}.`,
-      timestamp: new Date(),
-    };
+  const handleSkipPendingUpdates = useCallback(
+    (messageId: string, pending: NonNullable<Message['pendingUpdates']>) => {
+      const skippedAt = Date.now();
+      const skipMessage: Message = {
+        id: `${skippedAt}-skip`,
+        type: 'system',
+        content:
+          pending.labels.length === 1
+            ? `⏭️ Skipped auto-fill for ${pending.labels[0]}.`
+            : `⏭️ Skipped auto-fill for: ${pending.labels.join(', ')}.`,
+        timestamp: new Date(),
+      };
 
-    setMessages((prev) => {
-      const withoutPrompt = prev.filter((message) => message.id !== messageId);
-      return [...withoutPrompt, skipMessage];
-    });
-  }, []);
+      const followUps: Message[] = [skipMessage];
+
+      if (pending.section === 0 && !isQuickStartComplete) {
+        setIsQuickStartComplete(true);
+        followUps.push({
+          id: `${skippedAt + 1}-quickstart-skip`,
+          type: 'system',
+          content: 'No worries—when you are ready, you can start with Section 1 (Cover Page) and fill in the details manually.',
+          timestamp: new Date(),
+        });
+      }
+
+      setMessages((prev) => {
+        const withoutPrompt = prev.filter((message) => message.id !== messageId);
+        return [...withoutPrompt, ...followUps];
+      });
+    },
+    [isQuickStartComplete],
+  );
 
   const getActiveSectionName = useCallback(() => {
     if (currentSection <= 0) {
@@ -399,15 +475,28 @@ export function AIChatPanel({ currentSection, onClose, hasExistingDraft }: AICha
 
   const buildHistory = useCallback(
     (historyMessages: Message[]): ConversationMessage[] => {
+      const sectionForAI = !isQuickStartComplete ? 0 : currentSection;
+      const sectionLabel = !isQuickStartComplete
+        ? 'Quick Start Intake'
+        : getActiveSectionName();
+
       const history: ConversationMessage[] = [
         { role: 'system', content: BASE_SYSTEM_PROMPT },
         {
           role: 'system',
-          content: `The user is currently working on the ${getActiveSectionName()} section of a grant proposal. Provide focused, respectful support and suggest actionable next steps.`,
+          content: `The user is currently working on the ${sectionLabel} section of a grant proposal. Provide focused, respectful support and suggest actionable next steps.`,
         },
       ];
 
-      const formatInstruction = getFormatInstruction(currentSection);
+      if (sectionForAI === 0) {
+        history.push({
+          role: 'system',
+          content:
+            "You are running a quick-start intake to capture the project's overarching goal. Ask clarifying questions if needed, craft a concise assistant reply, and propose structured field updates that draft an initial proposal outline.",
+        });
+      }
+
+      const formatInstruction = getFormatInstruction(sectionForAI);
       if (formatInstruction) {
         history.push({ role: 'system', content: formatInstruction });
       }
@@ -423,7 +512,7 @@ export function AIChatPanel({ currentSection, onClose, hasExistingDraft }: AICha
 
       return history;
     },
-    [currentSection, getActiveSectionName, getFormatInstruction],
+    [currentSection, getActiveSectionName, getFormatInstruction, isQuickStartComplete],
   );
 
   const playAudioFromBase64 = useCallback(
@@ -459,10 +548,13 @@ export function AIChatPanel({ currentSection, onClose, hasExistingDraft }: AICha
     setErrorMessage(null);
 
     try {
+      const activeSection =
+        !isQuickStartComplete ? 0 : currentSection > 0 ? currentSection : undefined;
+
       const response = await chatWithAssistant({
         message: trimmed,
         history: buildHistory(messagesRef.current),
-        section: currentSection > 0 ? currentSection : undefined,
+        section: activeSection,
       });
 
       const audioSrc = response.audio_base64
@@ -478,7 +570,10 @@ export function AIChatPanel({ currentSection, onClose, hasExistingDraft }: AICha
       };
 
       setMessages((prev) => [...prev, aiMessage]);
-      autoFillFields(currentSection, response.field_updates, response.message);
+
+      const sectionForAutoFill =
+        activeSection !== undefined ? activeSection : currentSection;
+      autoFillFields(sectionForAutoFill, response.field_updates, response.message);
     } catch (error) {
       const detail =
         error instanceof Error ? error.message : 'Unable to reach the assistant. Please try again.';
@@ -495,7 +590,7 @@ export function AIChatPanel({ currentSection, onClose, hasExistingDraft }: AICha
     } finally {
       setIsTyping(false);
     }
-  }, [autoFillFields, buildHistory, currentSection, playAudioFromBase64]);
+  }, [autoFillFields, buildHistory, currentSection, isQuickStartComplete, playAudioFromBase64]);
 
   const stopRecording = useCallback(() => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
@@ -642,14 +737,16 @@ export function AIChatPanel({ currentSection, onClose, hasExistingDraft }: AICha
       <div className="px-4 py-3 bg-emerald-100 border-b border-emerald-200">
         <p className="text-xs text-emerald-900 flex items-center gap-2 mb-1">
           <FileText className="w-4 h-4" />
-          {currentSection === 0 ? (
+          {!isQuickStartComplete ? (
+            <span>Working on: <strong>Quick Start Intake</strong></span>
+          ) : currentSection === 0 ? (
             <span>Working on: <strong>Upload Documents</strong></span>
           ) : (
             <span>Working on: <strong>{sectionNames[currentSection - 1]}</strong></span>
           )}
         </p>
         {/* Show uploaded documents count */}
-        {(data.communityDocuments.length > 0 || data.fundingDocuments.length > 0) && (
+        {isQuickStartComplete && (data.communityDocuments.length > 0 || data.fundingDocuments.length > 0) && (
           <p className="text-xs text-emerald-700 flex items-center gap-2 mt-1">
             📚 RAG Context: {data.communityDocuments.length} community doc{data.communityDocuments.length !== 1 ? 's' : ''}, {data.fundingDocuments.length} funding doc{data.fundingDocuments.length !== 1 ? 's' : ''}
           </p>
@@ -723,7 +820,7 @@ export function AIChatPanel({ currentSection, onClose, hasExistingDraft }: AICha
                           variant="outline"
                           size="sm"
                           className="border-stone-300 text-stone-600 hover:bg-stone-100"
-                          onClick={() => handleSkipPendingUpdates(message.id, message.pendingUpdates!.labels)}
+                          onClick={() => handleSkipPendingUpdates(message.id, message.pendingUpdates!)}
                         >
                           Not Now
                         </Button>

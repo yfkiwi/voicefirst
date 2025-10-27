@@ -26,6 +26,19 @@ ELEVENLABS_STT_ENDPOINT = os.getenv("ELEVENLABS_STT_ENDPOINT", "https://api.elev
 OPENAI_CHAT_MODEL = os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini")
 
 SECTION_FIELD_CONFIG: Dict[int, Dict[str, List[str]]] = {
+    0: {
+        "description": "Quick start intake overview",
+        "fields": [
+            "projectTitle",
+            "organizationName",
+            "executiveSummary",
+            "problemDescription",
+            "expectedOutcomes",
+            "objective1",
+            "communityBackground",
+            "needsChallenges",
+        ],
+    },
     1: {
         "description": "Cover Page details",
         "fields": [
