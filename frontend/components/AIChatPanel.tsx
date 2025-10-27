@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { ScrollArea } from './ui/scroll-area';
@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useProposal } from './ProposalContext';
+import { chatWithAssistant, transcribeAudio, type ConversationMessage } from '../lib/api';
 
 interface AIChatPanelProps {
   currentSection: number;
@@ -28,6 +29,7 @@ interface Message {
   type: 'ai' | 'user' | 'system';
   content: string;
   timestamp: Date;
+  audioSrc?: string;
 }
 
 const sectionNames = [
@@ -44,14 +46,26 @@ const sectionNames = [
   'Attachments'
 ];
 
+const BASE_SYSTEM_PROMPT = `You are an Indigenous grant-writing copilot helping users craft high-quality proposals.
+Provide empathetic, concise, and actionable feedback.
+Always ground advice in the current section of the proposal workflow and encourage culturally safe practices.`;
+
 export function AIChatPanel({ currentSection, onClose, hasExistingDraft }: AIChatPanelProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isRecording, setIsRecording] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [textInput, setTextInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const messagesRef = useRef<Message[]>([]);
   const { updateMultipleFields, data } = useProposal();
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   useEffect(() => {
     // Initialize with welcome message
@@ -64,6 +78,7 @@ export function AIChatPanel({ currentSection, onClose, hasExistingDraft }: AICha
       timestamp: new Date(),
     };
     setMessages([welcomeMessage]);
+    setErrorMessage(null);
   }, [hasExistingDraft]);
 
   useEffect(() => {
@@ -73,31 +88,7 @@ export function AIChatPanel({ currentSection, onClose, hasExistingDraft }: AICha
     }
   }, [messages]);
 
-  useEffect(() => {
-    // When section changes, provide contextual guidance
-    if (messages.length > 0) {
-      const sectionMessage: Message = {
-        id: Date.now().toString(),
-        type: 'system',
-        content: `📍 Now working on: ${sectionNames[currentSection - 1]}`,
-        timestamp: new Date(),
-      };
-      setMessages(prev => [...prev, sectionMessage]);
-
-      // Add AI guidance for the new section
-      setTimeout(() => {
-        const guidanceMessage: Message = {
-          id: (Date.now() + 1).toString(),
-          type: 'ai',
-          content: getSectionGuidance(currentSection),
-          timestamp: new Date(),
-        };
-        setMessages(prev => [...prev, guidanceMessage]);
-      }, 500);
-    }
-  }, [currentSection]);
-
-  const getSectionGuidance = (section: number): string => {
+  const getSectionGuidance = useCallback((section: number): string => {
     const guidance: { [key: number]: string } = {
       1: "For the Cover Page, I need: project title, organization name, contact information, and submission date. You can speak or type these details.",
       2: "The Executive Summary should be 150-250 words covering who you are, what you're proposing, why it's needed, expected outcomes, and your funding request. Want to draft this together?",
@@ -112,44 +103,35 @@ export function AIChatPanel({ currentSection, onClose, hasExistingDraft }: AICha
       11: "Finally, let's review what supporting documents you have: letters of support, community plans, detailed budgets, etc. What can you attach?"
     };
     return guidance[section] || "How can I help with this section?";
-  };
+  }, []);
 
-  const handleVoiceRecord = async () => {
-    if (!isRecording) {
-      setIsRecording(true);
-      setIsListening(true);
-      
-      // TODO: Integrate ElevenLabs STT (Speech-to-Text)
-      // In production, this would use ElevenLabs API for real-time transcription
-      
-      // Simulate voice recording for demo
-      setTimeout(() => {
-        setIsRecording(false);
-        setIsListening(false);
-        
-        const transcribedText = "We want to establish a community-owned crafts and eco-tourism social enterprise that will create sustainable jobs while preserving our traditional knowledge and cultural heritage.";
-        
-        const newMessage: Message = {
-          id: Date.now().toString(),
-          type: 'user',
-          content: transcribedText,
-          timestamp: new Date(),
-        };
-        setMessages(prev => [...prev, newMessage]);
-        
-        // Auto-fill form fields based on section
-        autoFillFields(currentSection, transcribedText);
-        
-        // Simulate AI response with TTS
-        handleAIResponse(transcribedText);
-      }, 3000);
-    } else {
-      setIsRecording(false);
-      setIsListening(false);
-    }
-  };
+  useEffect(() => {
+    if (currentSection <= 0) return;
+    const sectionName = sectionNames[currentSection - 1];
+    if (!sectionName) return;
 
-  const autoFillFields = (section: number, userInput: string) => {
+    const sectionMessage: Message = {
+      id: `${Date.now()}-section`,
+      type: 'system',
+      content: `📍 Now working on: ${sectionName}`,
+      timestamp: new Date(),
+    };
+    setMessages(prev => [...prev, sectionMessage]);
+
+    const timeout = setTimeout(() => {
+      const guidanceMessage: Message = {
+        id: `${Date.now()}-guidance`,
+        type: 'ai',
+        content: getSectionGuidance(currentSection),
+        timestamp: new Date(),
+      };
+      setMessages(prev => [...prev, guidanceMessage]);
+    }, 300);
+
+    return () => clearTimeout(timeout);
+  }, [currentSection, getSectionGuidance]);
+
+  const autoFillFields = useCallback((section: number, userInput: string) => {
     // Auto-fill form data based on current section
     // In production, this would use GPT-4o to extract structured data from user input
     
@@ -323,85 +305,202 @@ export function AIChatPanel({ currentSection, onClose, hasExistingDraft }: AICha
         }, 2000);
         break;
     }
-  };
+  }, [updateMultipleFields]);
 
-  const handleTextSubmit = () => {
-    if (textInput.trim()) {
-      const newMessage: Message = {
-        id: Date.now().toString(),
-        type: 'user',
-        content: textInput,
-        timestamp: new Date(),
-      };
-      setMessages(prev => [...prev, newMessage]);
-      
-      handleAIResponse(textInput);
-      setTextInput('');
+  const getActiveSectionName = useCallback(() => {
+    if (currentSection <= 0) {
+      return 'Document Preparation';
     }
-  };
+    return sectionNames[currentSection - 1] ?? 'Proposal Section';
+  }, [currentSection]);
 
-  const handleAIResponse = async (userInput: string) => {
+  const buildHistory = useCallback(
+    (historyMessages: Message[]): ConversationMessage[] => {
+      const history: ConversationMessage[] = [
+        { role: 'system', content: BASE_SYSTEM_PROMPT },
+        {
+          role: 'system',
+          content: `The user is currently working on the ${getActiveSectionName()} section of a grant proposal. Provide focused, respectful support and suggest actionable next steps.`,
+        },
+      ];
+
+      historyMessages.forEach((message) => {
+        if (message.type === 'user') {
+          history.push({ role: 'user', content: message.content });
+        }
+        if (message.type === 'ai') {
+          history.push({ role: 'assistant', content: message.content });
+        }
+      });
+
+      return history;
+    },
+    [getActiveSectionName],
+  );
+
+  const playAudioFromBase64 = useCallback((audioBase64: string) => {
+    const src = `data:audio/mpeg;base64,${audioBase64}`;
+    const audio = new Audio(src);
+    audio.play().catch(() => undefined);
+    return src;
+  }, []);
+
+  const sendMessage = useCallback(async (content: string) => {
+    const trimmed = content.trim();
+    if (!trimmed) return;
+
+    const userMessage: Message = {
+      id: `${Date.now()}-user`,
+      type: 'user',
+      content: trimmed,
+      timestamp: new Date(),
+    };
+
+    setMessages((prev) => [...prev, userMessage]);
+    setTextInput('');
     setIsTyping(true);
-    
-    // TODO: Integrate RAG + GPT-4o API
-    // In production, this would:
-    // 1. Send user input to backend
-    // 2. Retrieve relevant context from uploaded documents (RAG)
-    // 3. Generate response using GPT-4o
-    // 4. Use ElevenLabs TTS to speak the response
-    
-    // Simulate AI processing
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    
-    const aiResponse: Message = {
-      id: Date.now().toString(),
-      type: 'ai',
-      content: generateSmartResponse(userInput, currentSection),
-      timestamp: new Date(),
-    };
-    
-    setIsTyping(false);
-    setMessages(prev => [...prev, aiResponse]);
-    
-    // TODO: Play TTS audio using ElevenLabs
-    // playTTS(aiResponse.content);
-  };
+    setErrorMessage(null);
 
-  const generateSmartResponse = (input: string, section: number): string => {
-    // Mock intelligent responses based on section and input
-    const responses: { [key: number]: string } = {
-      1: "Excellent! A community-owned crafts and eco-tourism enterprise is compelling. Let me help you craft the project title. How about: 'Establishing a Community-Owned Traditional Crafts & Eco-Tourism Social Enterprise'? Does that capture your vision?",
-      2: "Great concept! For the executive summary, I'll help you structure it. Let's include: (1) Your community's unique position, (2) The employment and cultural preservation need, (3) The enterprise model, (4) Expected jobs created, and (5) Funding request. Should we draft the first sentence together?",
-      3: "That cultural heritage focus is a strength. For Community Context, let's highlight: your community's population, traditional craft expertise, tourism potential, and current employment challenges. Can you tell me about your community's size and location?",
-      5: "Perfect! Let's make those objectives SMART. For example: 'Create 15 permanent full-time jobs by Year 3' and 'Train 30 community members in traditional crafts and tourism skills by Year 2'. What's your target for job creation?",
-    };
-    return responses[section] || "That's helpful information. Let me process this and suggest how to incorporate it into your proposal. Would you like me to draft text based on what you've shared?";
-  };
+    autoFillFields(currentSection, trimmed);
 
-  const handleFileUpload = () => {
-    const systemMessage: Message = {
-      id: Date.now().toString(),
-      type: 'system',
-      content: "📎 Document uploaded: community-economic-plan-2024.pdf • Analyzing with RAG...",
-      timestamp: new Date(),
-    };
-    setMessages(prev => [...prev, systemMessage]);
+    try {
+      const response = await chatWithAssistant({
+        message: trimmed,
+        history: buildHistory(messagesRef.current),
+      });
 
-    setTimeout(() => {
-      const aiResponse: Message = {
-        id: (Date.now() + 1).toString(),
+      const audioSrc = response.audio_base64
+        ? playAudioFromBase64(response.audio_base64)
+        : undefined;
+
+      const aiMessage: Message = {
+        id: `${Date.now()}-assistant`,
         type: 'ai',
-        content: "I've analyzed your community economic plan. I can see you have strong employment goals and cultural preservation priorities outlined. I'll use this context to provide more tailored suggestions throughout your proposal. This aligns well with many funding programs!",
+        content: response.message,
         timestamp: new Date(),
+        audioSrc,
       };
-      setMessages(prev => [...prev, aiResponse]);
-    }, 2000);
-  };
 
-  const playMessageAudio = (content: string) => {
-    // TODO: Implement ElevenLabs TTS playback
-    console.log('Playing TTS:', content);
-  };
+      setMessages((prev) => [...prev, aiMessage]);
+    } catch (error) {
+      const detail =
+        error instanceof Error ? error.message : 'Unable to reach the assistant. Please try again.';
+      setErrorMessage(detail);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `${Date.now()}-error`,
+          type: 'system',
+          content: `⚠️ ${detail}`,
+          timestamp: new Date(),
+        },
+      ]);
+    } finally {
+      setIsTyping(false);
+    }
+  }, [autoFillFields, buildHistory, currentSection, playAudioFromBase64]);
+
+  const stopRecording = useCallback(() => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+  }, []);
+
+  const handleVoiceRecord = useCallback(async () => {
+    if (isRecording) {
+      stopRecording();
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = recorder;
+      audioChunksRef.current = [];
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      recorder.onerror = () => {
+        setErrorMessage('Recording failed. Please try again.');
+        setIsRecording(false);
+        setIsListening(false);
+      };
+
+      recorder.onstop = async () => {
+        setIsRecording(false);
+        setIsListening(false);
+        stream.getTracks().forEach((track) => track.stop());
+
+        const audioBlob = new Blob(audioChunksRef.current, {
+          type: recorder.mimeType || 'audio/webm',
+        });
+
+        if (!audioBlob.size) {
+          return;
+        }
+
+        try {
+          const transcription = await transcribeAudio(audioBlob, `voice-${Date.now()}.webm`);
+          setTextInput(transcription.text);
+          await sendMessage(transcription.text);
+        } catch (error) {
+          const detail =
+            error instanceof Error ? error.message : 'Unable to transcribe the recording.';
+          setErrorMessage(detail);
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `${Date.now()}-stt-error`,
+              type: 'system',
+              content: `⚠️ ${detail}`,
+              timestamp: new Date(),
+            },
+          ]);
+        }
+      };
+
+      recorder.start();
+      setIsRecording(true);
+      setIsListening(true);
+    } catch (error) {
+      const detail =
+        error instanceof Error
+          ? error.message
+          : 'Microphone access denied. Please enable microphone permissions.';
+      setErrorMessage(detail);
+      setIsRecording(false);
+      setIsListening(false);
+    }
+  }, [autoFillFields, currentSection, isRecording, sendMessage, stopRecording]);
+
+  useEffect(() => () => {
+    stopRecording();
+  }, [stopRecording]);
+
+  const handleTextSubmit = useCallback(() => {
+    if (!textInput.trim()) return;
+    void sendMessage(textInput);
+  }, [sendMessage, textInput]);
+
+  const handleFileUpload = useCallback(() => {
+    const systemMessage: Message = {
+      id: `${Date.now()}-upload`,
+      type: 'system',
+      content: '📎 Document uploaded and queued for analysis. I will incorporate its insights shortly.',
+      timestamp: new Date(),
+    };
+    setMessages((prev) => [...prev, systemMessage]);
+  }, []);
+
+  const handlePlayAudio = useCallback((message: Message) => {
+    if (!message.audioSrc) return;
+    const audio = new Audio(message.audioSrc);
+    audio.play().catch(() => undefined);
+  }, []);
 
   return (
     <div className="h-full flex flex-col bg-gradient-to-b from-sky-50 to-blue-50">
@@ -415,7 +514,7 @@ export function AIChatPanel({ currentSection, onClose, hasExistingDraft }: AICha
             <h3 className="text-stone-900">AI Assistant</h3>
             <p className="text-xs text-emerald-600 flex items-center gap-1">
               <Sparkles className="w-3 h-3" />
-              Powered by GPT-4o & RAG
+              Powered by OpenAI & ElevenLabs
             </p>
           </div>
         </div>
@@ -467,11 +566,12 @@ export function AIChatPanel({ currentSection, onClose, hasExistingDraft }: AICha
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="h-6 gap-1 text-xs text-emerald-600 hover:text-emerald-700"
-                          onClick={() => playMessageAudio(message.content)}
+                          disabled={!message.audioSrc}
+                          className="h-6 gap-1 text-xs text-emerald-600 hover:text-emerald-700 disabled:text-stone-400"
+                          onClick={() => handlePlayAudio(message)}
                         >
                           <Volume2 className="w-3 h-3" />
-                          Play
+                          {message.audioSrc ? 'Play' : 'No Audio'}
                         </Button>
                       </div>
                     </div>
@@ -536,6 +636,12 @@ export function AIChatPanel({ currentSection, onClose, hasExistingDraft }: AICha
           </div>
         )}
 
+        {errorMessage && (
+          <div className="mb-3 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-800">
+            {errorMessage}
+          </div>
+        )}
+
         {/* Voice Button */}
         <div className="mb-3">
           <Button
@@ -548,7 +654,7 @@ export function AIChatPanel({ currentSection, onClose, hasExistingDraft }: AICha
             }`}
           >
             <Mic className="w-5 h-5" />
-            {isRecording ? '🎤 Recording... Tap to stop' : '🎤 Hold to Speak'}
+            {isRecording ? '🎤 Recording... Tap to stop' : '🎤 Tap to Speak'}
           </Button>
           <p className="text-xs text-center text-stone-500 mt-1">
             Powered by ElevenLabs Voice AI
@@ -560,7 +666,12 @@ export function AIChatPanel({ currentSection, onClose, hasExistingDraft }: AICha
           <Input
             value={textInput}
             onChange={(e) => setTextInput(e.target.value)}
-            onKeyPress={(e) => e.key === 'Enter' && handleTextSubmit()}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                handleTextSubmit();
+              }
+            }}
             placeholder="Or type your message..."
             className="flex-1"
           />
