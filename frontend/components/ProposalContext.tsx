@@ -22,6 +22,9 @@ export interface ProposalData {
   communityName: string;
   population: string;
   communityBackground: string;
+  economicBaseline: string;
+  culturalContext: string;
+  needsChallenges: string;
   
   // Problem Statement
   problemDescription: string;
@@ -36,23 +39,34 @@ export interface ProposalData {
   year3Activities: string;
   
   // Implementation
+  governanceStructure: string;
+  implementationResponsibilities: string;
+  implementationPartnerships: string;
+  implementationRiskOverview: string;
   milestones: { name: string; date: string }[];
   
   // Budget
   totalBudget: string;
   requestedAmount: string;
+  communityContribution: string;
   personnelBudget: string;
   equipmentBudget: string;
   trainingBudget: string;
   marketingBudget: string;
   otherBudget: string;
+  sustainabilityPlan: string;
   
   // Outcomes
   expectedOutcomes: string;
   successIndicators: string;
+  dataCollectionPlan: string;
+  evaluationPlan: string;
   
   // Alignment
   alignmentDescription: string;
+  communityAlignment: string;
+  funderAlignment: string;
+  longTermSustainability: string;
   
   // Risk Management
   risksMitigation: string;
@@ -85,6 +99,9 @@ const initialData: ProposalData = {
   communityName: '',
   population: '',
   communityBackground: '',
+  economicBaseline: '',
+  culturalContext: '',
+  needsChallenges: '',
   problemDescription: '',
   supportingEvidence: '',
   objective1: '',
@@ -93,6 +110,10 @@ const initialData: ProposalData = {
   year1Activities: '',
   year2Activities: '',
   year3Activities: '',
+  governanceStructure: '',
+  implementationResponsibilities: '',
+  implementationPartnerships: '',
+  implementationRiskOverview: '',
   milestones: [
     { name: '', date: '' },
     { name: '', date: '' },
@@ -101,14 +122,21 @@ const initialData: ProposalData = {
   ],
   totalBudget: '',
   requestedAmount: '',
+  communityContribution: '',
   personnelBudget: '',
   equipmentBudget: '',
   trainingBudget: '',
   marketingBudget: '',
   otherBudget: '',
+  sustainabilityPlan: '',
   expectedOutcomes: '',
   successIndicators: '',
+  dataCollectionPlan: '',
+  evaluationPlan: '',
   alignmentDescription: '',
+  communityAlignment: '',
+  funderAlignment: '',
+  longTermSustainability: '',
   risksMitigation: '',
 };
 

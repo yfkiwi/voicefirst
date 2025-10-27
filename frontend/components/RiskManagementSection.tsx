@@ -7,6 +7,8 @@ import { Button } from './ui/button';
 import { AlertTriangle, Plus } from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { Textarea } from './ui/textarea';
+import { useProposal } from './ProposalContext';
 
 interface Risk {
   risk: string;
@@ -15,6 +17,7 @@ interface Risk {
 }
 
 export function RiskManagementSection() {
+  const { data, updateField } = useProposal();
   const [risks, setRisks] = useState<Risk[]>([
     { risk: '', likelihood: '', mitigation: '' },
     { risk: '', likelihood: '', mitigation: '' },
@@ -145,6 +148,20 @@ export function RiskManagementSection() {
               <li>Technical (equipment failure, IT issues)</li>
               <li>Community (engagement, participation)</li>
             </ul>
+          </div>
+
+          <div>
+            <Label htmlFor="risk-summary">Overall Risk Mitigation Strategy</Label>
+            <p className="text-sm text-stone-600 mt-1 mb-2">
+              Provide a narrative summary of your major risks and how you will address them.
+            </p>
+            <Textarea
+              id="risk-summary"
+              className="mt-2 min-h-[140px]"
+              placeholder="Summarize key risks and mitigation strategies across governance, operations, partnerships, and finance."
+              value={data.risksMitigation}
+              onChange={(e) => updateField('risksMitigation', e.target.value)}
+            />
           </div>
         </div>
       </CardContent>

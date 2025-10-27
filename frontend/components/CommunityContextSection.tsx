@@ -2,13 +2,16 @@ import React, { useState } from 'react';
 import { Card, CardContent } from './ui/card';
 import { SectionHeader } from './SectionHeader';
 import { Textarea } from './ui/textarea';
+import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Button } from './ui/button';
 import { MapPin, Upload, Info } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
+import { useProposal } from './ProposalContext';
 
 export function CommunityContextSection() {
   const [fileName, setFileName] = useState<string | null>(null);
+  const { data, updateField } = useProposal();
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -27,6 +30,29 @@ export function CommunityContextSection() {
         />
 
         <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <Label htmlFor="community-name">Community Name *</Label>
+              <Input
+                id="community-name"
+                placeholder="e.g., Inuvik"
+                className="mt-2"
+                value={data.communityName}
+                onChange={(e) => updateField('communityName', e.target.value)}
+              />
+            </div>
+            <div>
+              <Label htmlFor="community-population">Population</Label>
+              <Input
+                id="community-population"
+                placeholder="e.g., 3,243"
+                className="mt-2"
+                value={data.population}
+                onChange={(e) => updateField('population', e.target.value)}
+              />
+            </div>
+          </div>
+
           <div>
             <div className="flex items-center gap-2 mb-2">
               <Label htmlFor="community-overview">Community Overview *</Label>
@@ -45,6 +71,8 @@ export function CommunityContextSection() {
               id="community-overview"
               placeholder="Describe your community: population, location, key facts..."
               className="mt-2 min-h-[120px]"
+              value={data.communityBackground}
+              onChange={(e) => updateField('communityBackground', e.target.value)}
             />
           </div>
 
@@ -54,6 +82,8 @@ export function CommunityContextSection() {
               id="economic-baseline"
               placeholder="Current economic situation, employment rates, major industries..."
               className="mt-2 min-h-[100px]"
+              value={data.economicBaseline}
+              onChange={(e) => updateField('economicBaseline', e.target.value)}
             />
           </div>
 
@@ -63,6 +93,8 @@ export function CommunityContextSection() {
               id="cultural-context"
               placeholder="Cultural heritage, traditions, environmental features relevant to this project..."
               className="mt-2 min-h-[100px]"
+              value={data.culturalContext}
+              onChange={(e) => updateField('culturalContext', e.target.value)}
             />
           </div>
 
@@ -72,6 +104,8 @@ export function CommunityContextSection() {
               id="needs-challenges"
               placeholder="Key challenges your community faces that this project addresses..."
               className="mt-2 min-h-[100px]"
+              value={data.needsChallenges}
+              onChange={(e) => updateField('needsChallenges', e.target.value)}
             />
           </div>
 

@@ -7,6 +7,7 @@ import { Label } from './ui/label';
 import { Button } from './ui/button';
 import { TrendingUp, Plus } from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
+import { useProposal } from './ProposalContext';
 
 interface Indicator {
   indicator: string;
@@ -16,6 +17,7 @@ interface Indicator {
 }
 
 export function OutcomesSection() {
+  const { data, updateField } = useProposal();
   const [indicators, setIndicators] = useState<Indicator[]>([
     { indicator: '', baseline: '', target: '', year: '' },
     { indicator: '', baseline: '', target: '', year: '' },
@@ -43,6 +45,35 @@ export function OutcomesSection() {
         />
 
         <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <Label htmlFor="expected-outcomes">Expected Outcomes *</Label>
+              <p className="text-sm text-stone-600 mt-1 mb-2">
+                Summarize the major results you anticipate achieving through this project.
+              </p>
+              <Textarea
+                id="expected-outcomes"
+                className="mt-2 min-h-[140px]"
+                placeholder="Outline the key community, economic, and cultural outcomes you expect."
+                value={data.expectedOutcomes}
+                onChange={(e) => updateField('expectedOutcomes', e.target.value)}
+              />
+            </div>
+            <div>
+              <Label htmlFor="success-indicators">Success Indicators *</Label>
+              <p className="text-sm text-stone-600 mt-1 mb-2">
+                List the high-level indicators you will use to demonstrate success.
+              </p>
+              <Textarea
+                id="success-indicators"
+                className="mt-2 min-h-[140px]"
+                placeholder="Describe how you will measure progress (jobs created, revenue, training completions, etc.)"
+                value={data.successIndicators}
+                onChange={(e) => updateField('successIndicators', e.target.value)}
+              />
+            </div>
+          </div>
+
           <div>
             <div className="flex items-center gap-2 mb-3">
               <Label>Performance Indicators *</Label>
@@ -142,6 +173,8 @@ export function OutcomesSection() {
               id="data-collection"
               placeholder="Describe your data collection methods (e.g., monthly sales reports, quarterly employment surveys, visitor logs...)"
               className="mt-2 min-h-[100px]"
+              value={data.dataCollectionPlan}
+              onChange={(e) => updateField('dataCollectionPlan', e.target.value)}
             />
           </div>
 
@@ -154,6 +187,8 @@ export function OutcomesSection() {
               id="evaluation-plan"
               placeholder="Describe evaluation timeline and methods (e.g., annual reviews, mid-project assessment, final evaluation report...)"
               className="mt-2 min-h-[100px]"
+              value={data.evaluationPlan}
+              onChange={(e) => updateField('evaluationPlan', e.target.value)}
             />
           </div>
         </div>

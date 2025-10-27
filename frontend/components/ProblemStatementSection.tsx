@@ -4,8 +4,11 @@ import { SectionHeader } from './SectionHeader';
 import { Textarea } from './ui/textarea';
 import { Label } from './ui/label';
 import { AlertCircle } from 'lucide-react';
+import { useProposal } from './ProposalContext';
 
 export function ProblemStatementSection() {
+  const { data, updateField } = useProposal();
+
   return (
     <Card className="border-2 border-sky-200 shadow-lg">
       <CardContent className="p-8">
@@ -26,6 +29,22 @@ export function ProblemStatementSection() {
               id="problem-statement"
               placeholder="Explain the problem your project addresses and the opportunity it unlocks..."
               className="mt-2 min-h-[180px]"
+              value={data.problemDescription}
+              onChange={(e) => updateField('problemDescription', e.target.value)}
+            />
+          </div>
+
+          <div>
+            <Label htmlFor="supporting-evidence">Supporting Evidence</Label>
+            <p className="text-sm text-stone-600 mt-1 mb-2">
+              Reference data, community feedback, or research that supports the need for this project.
+            </p>
+            <Textarea
+              id="supporting-evidence"
+              placeholder="Include key statistics, consultation findings, or testimonials..."
+              className="mt-2 min-h-[160px]"
+              value={data.supportingEvidence}
+              onChange={(e) => updateField('supportingEvidence', e.target.value)}
             />
           </div>
 

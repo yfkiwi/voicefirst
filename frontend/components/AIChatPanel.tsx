@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useProposal } from './ProposalContext';
+import type { ProposalData } from './ProposalContext';
 import { chatWithAssistant, transcribeAudio, type ConversationMessage } from '../lib/api';
 
 interface AIChatPanelProps {
@@ -49,6 +50,138 @@ const sectionNames = [
 const BASE_SYSTEM_PROMPT = `You are an Indigenous grant-writing copilot helping users craft high-quality proposals.
 Provide empathetic, concise, and actionable feedback.
 Always ground advice in the current section of the proposal workflow and encourage culturally safe practices.`;
+
+type ProposalFieldKey = keyof ProposalData;
+
+const SECTION_FIELD_CONFIG: Record<number, { fields: ProposalFieldKey[]; fallback?: ProposalFieldKey }> = {
+  1: {
+    fields: [
+      'projectTitle',
+      'organizationName',
+      'submissionDate',
+      'contactName',
+      'contactPhone',
+      'contactEmail',
+      'contactAddress',
+      'fundedBy',
+    ],
+  },
+  2: { fields: ['executiveSummary'], fallback: 'executiveSummary' },
+  3: {
+    fields: [
+      'communityName',
+      'population',
+      'communityBackground',
+      'economicBaseline',
+      'culturalContext',
+      'needsChallenges',
+    ],
+  },
+  4: {
+    fields: ['problemDescription', 'supportingEvidence'],
+    fallback: 'problemDescription',
+  },
+  5: {
+    fields: [
+      'objective1',
+      'objective2',
+      'objective3',
+      'year1Activities',
+      'year2Activities',
+      'year3Activities',
+    ],
+  },
+  6: {
+    fields: [
+      'governanceStructure',
+      'implementationResponsibilities',
+      'implementationPartnerships',
+      'implementationRiskOverview',
+    ],
+  },
+  7: {
+    fields: [
+      'totalBudget',
+      'requestedAmount',
+      'communityContribution',
+      'personnelBudget',
+      'equipmentBudget',
+      'trainingBudget',
+      'marketingBudget',
+      'otherBudget',
+      'sustainabilityPlan',
+    ],
+  },
+  8: {
+    fields: [
+      'expectedOutcomes',
+      'successIndicators',
+      'dataCollectionPlan',
+      'evaluationPlan',
+    ],
+    fallback: 'expectedOutcomes',
+  },
+  9: {
+    fields: [
+      'communityAlignment',
+      'funderAlignment',
+      'longTermSustainability',
+    ],
+    fallback: 'communityAlignment',
+  },
+  10: {
+    fields: ['risksMitigation'],
+    fallback: 'risksMitigation',
+  },
+};
+
+const FIELD_LABELS: Partial<Record<ProposalFieldKey, string>> = {
+  projectTitle: 'Project Title',
+  organizationName: 'Organization Name',
+  submissionDate: 'Submission Date',
+  contactName: 'Contact Name',
+  contactPhone: 'Contact Phone',
+  contactEmail: 'Contact Email',
+  contactAddress: 'Contact Address',
+  fundedBy: 'Funding Source',
+  executiveSummary: 'Executive Summary',
+  communityName: 'Community Name',
+  population: 'Population',
+  communityBackground: 'Community Background',
+  economicBaseline: 'Economic Baseline',
+  culturalContext: 'Cultural Context',
+  needsChallenges: 'Needs & Challenges',
+  problemDescription: 'Problem Statement',
+  supportingEvidence: 'Supporting Evidence',
+  objective1: 'Objective 1',
+  objective2: 'Objective 2',
+  objective3: 'Objective 3',
+  year1Activities: 'Year 1 Activities',
+  year2Activities: 'Year 2 Activities',
+  year3Activities: 'Year 3 Activities',
+  governanceStructure: 'Governance Structure',
+  implementationResponsibilities: 'Implementation Responsibilities',
+  implementationPartnerships: 'Implementation Partnerships',
+  implementationRiskOverview: 'Implementation Risk Overview',
+  totalBudget: 'Total Project Cost',
+  requestedAmount: 'Grant Requested',
+  communityContribution: 'Community Contribution',
+  personnelBudget: 'Personnel Budget',
+  equipmentBudget: 'Equipment Budget',
+  trainingBudget: 'Training Budget',
+  marketingBudget: 'Marketing Budget',
+  otherBudget: 'Other Costs',
+  sustainabilityPlan: 'Sustainability Plan',
+  expectedOutcomes: 'Expected Outcomes',
+  successIndicators: 'Success Indicators',
+  dataCollectionPlan: 'Data Collection Plan',
+  evaluationPlan: 'Evaluation Plan',
+  communityAlignment: 'Community Alignment',
+  funderAlignment: 'Funder Alignment',
+  longTermSustainability: 'Long-Term Sustainability',
+  alignmentDescription: 'Alignment Summary',
+  risksMitigation: 'Risk Mitigation Strategy',
+};
 
 export function AIChatPanel({ currentSection, onClose, hasExistingDraft }: AIChatPanelProps) {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -131,181 +264,60 @@ export function AIChatPanel({ currentSection, onClose, hasExistingDraft }: AICha
     return () => clearTimeout(timeout);
   }, [currentSection, getSectionGuidance]);
 
-  const autoFillFields = useCallback((section: number, userInput: string) => {
-    // Auto-fill form data based on current section
-    // In production, this would use GPT-4o to extract structured data from user input
-    
-    const today = new Date().toISOString().split('T')[0];
-    
-    switch (section) {
-      case 1: // Cover Page
-        updateMultipleFields({
-          projectTitle: 'Community-Owned Traditional Crafts & Eco-Tourism Social Enterprise',
-          organizationName: 'Inuvik Community Development Corporation',
-          submissionDate: today,
-          contactName: 'Sarah Johnson',
-          contactPhone: '(867) 555-0123',
-          contactEmail: 'sjohnson@inuvik-cdc.ca',
-          contactAddress: '123 Mackenzie Road, Inuvik, NT X0E 0T0',
-          fundedBy: 'Northern Economic Development Program'
-        });
-        
-        // Show notification
+  const autoFillFields = useCallback(
+    (
+      section: number,
+      fieldUpdates: Record<string, unknown> | undefined,
+      assistantReply: string,
+    ) => {
+      const config = SECTION_FIELD_CONFIG[section];
+      if (!config) return;
+
+      const updates: Partial<ProposalData> = {};
+      const updatedLabels: string[] = [];
+
+      for (const field of config.fields) {
+        const rawValue = fieldUpdates?.[field];
+        if (typeof rawValue === 'string' && rawValue.trim()) {
+          updates[field] = rawValue.trim();
+          updatedLabels.push(FIELD_LABELS[field] ?? field);
+        }
+      }
+
+      if (Object.keys(updates).length > 0) {
+        updateMultipleFields(updates);
+
         setTimeout(() => {
           const notificationMessage: Message = {
             id: Date.now().toString(),
             type: 'system',
-            content: '✨ Cover Page fields have been auto-filled! Review and edit as needed.',
+            content:
+              updatedLabels.length === 1
+                ? `✨ Updated ${updatedLabels[0]}.`
+                : `✨ Updated fields: ${updatedLabels.join(', ')}.`,
             timestamp: new Date(),
           };
-          setMessages(prev => [...prev, notificationMessage]);
-        }, 2000);
-        break;
-        
-      case 2: // Executive Summary
-        updateMultipleFields({
-          executiveSummary: 'The Inuvik Community Development Corporation proposes to establish a community-owned traditional crafts and eco-tourism social enterprise to address critical employment challenges while preserving Indigenous cultural heritage. This innovative project will create 15 permanent jobs, train 30 community members in traditional crafts and tourism skills, and generate sustainable revenue through authentic cultural experiences. By combining traditional knowledge with modern business practices, we will create economic opportunities that strengthen community identity and provide meaningful employment for our youth and elders. We are requesting $450,000 over three years to establish infrastructure, provide training, and launch operations that will become self-sustaining by Year 3.'
-        });
-        
+          setMessages((prev) => [...prev, notificationMessage]);
+        }, 500);
+        return;
+      }
+
+      const fallbackField = config.fallback;
+      if (fallbackField && assistantReply.trim()) {
+        updateMultipleFields({ [fallbackField]: assistantReply.trim() } as Partial<ProposalData>);
         setTimeout(() => {
           const notificationMessage: Message = {
             id: Date.now().toString(),
             type: 'system',
-            content: '✨ Executive Summary has been drafted! Review and customize as needed.',
+            content: `✨ Drafted ${FIELD_LABELS[fallbackField] ?? fallbackField} from the assistant's reply.`,
             timestamp: new Date(),
           };
-          setMessages(prev => [...prev, notificationMessage]);
-        }, 2000);
-        break;
-        
-      case 3: // Community Context
-        updateMultipleFields({
-          communityName: 'Inuvik',
-          population: '3,243',
-          communityBackground: 'Inuvik is a vibrant Indigenous community in the Northwest Territories, home to Inuvialuit, Gwich\'in, and other Indigenous peoples. Our community has a rich history of traditional crafts including beadwork, fur garments, and caribou tufting, passed down through generations. Despite strong cultural traditions and growing tourism interest, we face a 24% unemployment rate, particularly affecting youth and women. Our community has excellent transportation links and established tourism infrastructure, positioning us well for eco-tourism development that respects and celebrates our cultural heritage.'
-        });
-        
-        setTimeout(() => {
-          const notificationMessage: Message = {
-            id: Date.now().toString(),
-            type: 'system',
-            content: '✨ Community Context section populated! Review the details.',
-            timestamp: new Date(),
-          };
-          setMessages(prev => [...prev, notificationMessage]);
-        }, 2000);
-        break;
-        
-      case 4: // Problem Statement
-        updateMultipleFields({
-          problemDescription: 'Our community faces a critical employment gap, with youth unemployment at 35% and limited opportunities for traditional skill development. Cultural knowledge transmission is at risk as elders age and youth seek opportunities elsewhere. The tourism industry is growing in our region but profits flow to southern-owned companies rather than benefiting local people. We need sustainable, culturally-appropriate employment that keeps families together and preserves traditional knowledge for future generations.',
-          supportingEvidence: 'Community consultations (2024) show 87% support for cultural enterprise development. Regional tourism data indicates 15,000+ annual visitors seeking authentic Indigenous experiences. Labour market analysis reveals only 3 locally-owned tourism operators despite high demand. Elder interviews document concern about cultural knowledge loss among youth aged 15-24.'
-        });
-        
-        setTimeout(() => {
-          const notificationMessage: Message = {
-            id: Date.now().toString(),
-            type: 'system',
-            content: '✨ Problem Statement completed with supporting evidence!',
-            timestamp: new Date(),
-          };
-          setMessages(prev => [...prev, notificationMessage]);
-        }, 2000);
-        break;
-        
-      case 5: // Project Description
-        updateMultipleFields({
-          objective1: 'Create 15 permanent full-time employment positions by Year 3 (10 artisans, 3 tour guides, 2 administrative)',
-          objective2: 'Train 30 community members in traditional crafts and eco-tourism skills by Year 2',
-          objective3: 'Generate $200,000 in annual revenue by Year 3 with 80% profit reinvested in community',
-          year1Activities: 'Establish production facility and retail space; Purchase equipment and materials; Recruit and train 15 participants in traditional crafts; Develop product lines and branding; Establish governance structure; Create partnerships with 5 hotels/tour operators',
-          year2Activities: 'Launch guided cultural tours (spring/summer); Expand training to 15 additional participants; Develop online sales platform; Participate in 3 regional trade shows; Hire 2 full-time staff; Generate initial revenue ($50,000 target)',
-          year3Activities: 'Scale to full operations with 15 permanent positions; Achieve revenue target of $200,000; Expand product distribution to 10 retailers; Develop training certification program; Begin succession planning for sustainability'
-        });
-        
-        setTimeout(() => {
-          const notificationMessage: Message = {
-            id: Date.now().toString(),
-            type: 'system',
-            content: '✨ Project objectives and 3-year activities plan filled in!',
-            timestamp: new Date(),
-          };
-          setMessages(prev => [...prev, notificationMessage]);
-        }, 2000);
-        break;
-        
-      case 7: // Budget
-        updateMultipleFields({
-          totalBudget: '500000',
-          requestedAmount: '450000',
-          personnelBudget: '180000',
-          equipmentBudget: '85000',
-          trainingBudget: '65000',
-          marketingBudget: '45000',
-          otherBudget: '125000'
-        });
-        
-        setTimeout(() => {
-          const notificationMessage: Message = {
-            id: Date.now().toString(),
-            type: 'system',
-            content: '✨ Budget categories filled with estimated amounts!',
-            timestamp: new Date(),
-          };
-          setMessages(prev => [...prev, notificationMessage]);
-        }, 2000);
-        break;
-        
-      case 8: // Outcomes
-        updateMultipleFields({
-          expectedOutcomes: '15 permanent jobs created with living wages ($45,000+/year); 30 community members trained with transferable skills; $200,000 annual revenue by Year 3; 5 traditional art forms actively practiced and taught; 500+ visitors engaged in authentic cultural experiences annually; Community ownership model established as template for other initiatives',
-          successIndicators: 'Number of jobs created and retention rate (target 90%); Revenue generated and profit margins (target 25%); Training completion rates and participant satisfaction (target 85%); Product sales volume and customer reviews (target 4.5/5 stars); Cultural knowledge transmission documented through elder-youth mentorship pairs'
-        });
-        
-        setTimeout(() => {
-          const notificationMessage: Message = {
-            id: Date.now().toString(),
-            type: 'system',
-            content: '✨ Expected outcomes and success indicators populated!',
-            timestamp: new Date(),
-          };
-          setMessages(prev => [...prev, notificationMessage]);
-        }, 2000);
-        break;
-        
-      case 9: // Alignment
-        updateMultipleFields({
-          alignmentDescription: 'This project directly aligns with your program\'s priorities: (1) Economic Reconciliation - creating Indigenous-owned business with community control; (2) Skills Development - providing practical training in traditional and modern business skills; (3) Community Well-being - addressing employment, cultural preservation, and social cohesion; (4) Innovation - combining traditional knowledge with sustainable tourism model; (5) Sustainability - building long-term revenue generation and capacity'
-        });
-        
-        setTimeout(() => {
-          const notificationMessage: Message = {
-            id: Date.now().toString(),
-            type: 'system',
-            content: '✨ Alignment with funder priorities articulated!',
-            timestamp: new Date(),
-          };
-          setMessages(prev => [...prev, notificationMessage]);
-        }, 2000);
-        break;
-        
-      case 10: // Risk Management
-        updateMultipleFields({
-          risksMitigation: 'Market Risk: Mitigate through diversified revenue streams (retail, tourism, online sales) and partnerships with established operators. Training Risk: Address through flexible scheduling, childcare support, and elder mentorship model. Seasonal Tourism: Balance with year-round craft production and online sales maintaining winter operations. Capacity Risk: Implement gradual scaling, strong governance, and ongoing business mentorship. Cultural Appropriation: Ensure community ownership, elder guidance on cultural protocols, and authentic storytelling.'
-        });
-        
-        setTimeout(() => {
-          const notificationMessage: Message = {
-            id: Date.now().toString(),
-            type: 'system',
-            content: '✨ Risk management strategies documented!',
-            timestamp: new Date(),
-          };
-          setMessages(prev => [...prev, notificationMessage]);
-        }, 2000);
-        break;
-    }
-  }, [updateMultipleFields]);
+          setMessages((prev) => [...prev, notificationMessage]);
+        }, 500);
+      }
+    },
+    [updateMultipleFields],
+  );
 
   const getActiveSectionName = useCallback(() => {
     if (currentSection <= 0) {
@@ -313,6 +325,27 @@ export function AIChatPanel({ currentSection, onClose, hasExistingDraft }: AICha
     }
     return sectionNames[currentSection - 1] ?? 'Proposal Section';
   }, [currentSection]);
+
+  const getFormatInstruction = useCallback(
+    (section: number): string | undefined => {
+      const config = SECTION_FIELD_CONFIG[section];
+      if (!config) return undefined;
+      const allowedFields = config.fields
+        .map((field) => {
+          const label = FIELD_LABELS[field];
+          return label ? `${field} (${label})` : field;
+        })
+        .join(', ');
+      return [
+        'Respond strictly with a JSON object shaped as',
+        '{"chat_reply": "<natural language response for the user>", "field_updates": { "<field>": "<value>" }}.',
+        `Only include keys inside "field_updates" from this allowlist: ${allowedFields}.`,
+        'If you do not have structured updates, set "field_updates" to an empty object.',
+        'Values must be plain strings without Markdown or additional commentary. Do not wrap the JSON in code fences or add text outside the JSON.',
+      ].join(' ');
+    },
+    [],
+  );
 
   const buildHistory = useCallback(
     (historyMessages: Message[]): ConversationMessage[] => {
@@ -323,6 +356,11 @@ export function AIChatPanel({ currentSection, onClose, hasExistingDraft }: AICha
           content: `The user is currently working on the ${getActiveSectionName()} section of a grant proposal. Provide focused, respectful support and suggest actionable next steps.`,
         },
       ];
+
+      const formatInstruction = getFormatInstruction(currentSection);
+      if (formatInstruction) {
+        history.push({ role: 'system', content: formatInstruction });
+      }
 
       historyMessages.forEach((message) => {
         if (message.type === 'user') {
@@ -335,7 +373,7 @@ export function AIChatPanel({ currentSection, onClose, hasExistingDraft }: AICha
 
       return history;
     },
-    [getActiveSectionName],
+    [currentSection, getActiveSectionName, getFormatInstruction],
   );
 
   const playAudioFromBase64 = useCallback((audioBase64: string) => {
@@ -361,13 +399,14 @@ export function AIChatPanel({ currentSection, onClose, hasExistingDraft }: AICha
     setIsTyping(true);
     setErrorMessage(null);
 
-    autoFillFields(currentSection, trimmed);
-
     try {
       const response = await chatWithAssistant({
         message: trimmed,
         history: buildHistory(messagesRef.current),
+        section: currentSection > 0 ? currentSection : undefined,
       });
+
+      autoFillFields(currentSection, response.field_updates, response.message);
 
       const audioSrc = response.audio_base64
         ? playAudioFromBase64(response.audio_base64)

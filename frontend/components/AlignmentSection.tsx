@@ -4,8 +4,11 @@ import { SectionHeader } from './SectionHeader';
 import { Textarea } from './ui/textarea';
 import { Label } from './ui/label';
 import { Target } from 'lucide-react';
+import { useProposal } from './ProposalContext';
 
 export function AlignmentSection() {
+  const { data, updateField } = useProposal();
+
   return (
     <Card className="border-2 border-emerald-200 shadow-lg">
       <CardContent className="p-8">
@@ -26,6 +29,8 @@ export function AlignmentSection() {
               id="community-alignment"
               placeholder="Explain how this project aligns with your community's strategic priorities, economic development plan, cultural preservation goals..."
               className="mt-2 min-h-[120px]"
+              value={data.communityAlignment}
+              onChange={(e) => updateField('communityAlignment', e.target.value)}
             />
           </div>
 
@@ -38,6 +43,8 @@ export function AlignmentSection() {
               id="funder-alignment"
               placeholder="Describe how your project aligns with the funder's mandate, priority areas, and evaluation criteria..."
               className="mt-2 min-h-[120px]"
+              value={data.funderAlignment}
+              onChange={(e) => updateField('funderAlignment', e.target.value)}
             />
           </div>
 
@@ -50,6 +57,8 @@ export function AlignmentSection() {
               id="long-term-sustainability"
               placeholder="Describe the long-term benefits, including economic, social, cultural, and environmental sustainability. How will outcomes continue beyond the funding period?"
               className="mt-2 min-h-[120px] bg-white"
+              value={data.longTermSustainability}
+              onChange={(e) => updateField('longTermSustainability', e.target.value)}
             />
           </div>
 
