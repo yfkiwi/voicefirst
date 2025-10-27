@@ -9,10 +9,12 @@ import {
   Send, 
   Bot, 
   X, 
-  Volume2, 
+  Volume2,
+  VolumeX,
   FileText,
   Sparkles,
-  Loader
+  Loader,
+  RotateCcw
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useProposal } from './ProposalContext';
@@ -57,6 +59,7 @@ export function AIChatPanel({ currentSection, onClose, hasExistingDraft }: AICha
   const [textInput, setTextInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isAudioMuted, setIsAudioMuted] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -338,11 +341,20 @@ export function AIChatPanel({ currentSection, onClose, hasExistingDraft }: AICha
     [getActiveSectionName],
   );
 
-  const playAudioFromBase64 = useCallback((audioBase64: string) => {
-    const src = `data:audio/mpeg;base64,${audioBase64}`;
-    const audio = new Audio(src);
-    audio.play().catch(() => undefined);
-    return src;
+  const playAudioFromBase64 = useCallback(
+    (audioBase64: string) => {
+      const src = `data:audio/mpeg;base64,${audioBase64}`;
+      if (!isAudioMuted) {
+        const audio = new Audio(src);
+        audio.play().catch(() => undefined);
+      }
+      return src;
+    },
+    [isAudioMuted],
+  );
+
+  const toggleAudioMute = useCallback(() => {
+    setIsAudioMuted((prev) => !prev);
   }, []);
 
   const sendMessage = useCallback(async (content: string) => {
@@ -518,9 +530,27 @@ export function AIChatPanel({ currentSection, onClose, hasExistingDraft }: AICha
             </p>
           </div>
         </div>
-        <Button variant="ghost" size="icon" onClick={onClose} className="md:hidden">
-          <X className="w-5 h-5" />
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={toggleAudioMute}
+            className="gap-1 text-emerald-700 hover:text-emerald-800"
+            aria-pressed={!isAudioMuted}
+          >
+            {isAudioMuted ? (
+              <VolumeX className="w-4 h-4" />
+            ) : (
+              <Volume2 className="w-4 h-4" />
+            )}
+            <span className="text-xs font-medium">
+              {isAudioMuted ? 'Audio Muted' : 'Auto Audio On'}
+            </span>
+          </Button>
+          <Button variant="ghost" size="icon" onClick={onClose} className="md:hidden">
+            <X className="w-5 h-5" />
+          </Button>
+        </div>
       </div>
 
       {/* Current Section Indicator */}
@@ -570,8 +600,8 @@ export function AIChatPanel({ currentSection, onClose, hasExistingDraft }: AICha
                           className="h-6 gap-1 text-xs text-emerald-600 hover:text-emerald-700 disabled:text-stone-400"
                           onClick={() => handlePlayAudio(message)}
                         >
-                          <Volume2 className="w-3 h-3" />
-                          {message.audioSrc ? 'Play' : 'No Audio'}
+                          <RotateCcw className="w-3 h-3" />
+                          {message.audioSrc ? 'Replay' : 'No Audio'}
                         </Button>
                       </div>
                     </div>
