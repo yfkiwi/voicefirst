@@ -1,8 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
-import { ScrollArea } from './ui/scroll-area';
-import { Card, CardContent } from './ui/card';
 import { 
   Mic, 
   Upload, 
@@ -27,12 +25,19 @@ interface AIChatPanelProps {
   hasExistingDraft: boolean;
 }
 
+type MessageType = 'ai' | 'user' | 'system' | 'action';
+
 interface Message {
   id: string;
-  type: 'ai' | 'user' | 'system';
+  type: MessageType;
   content: string;
   timestamp: Date;
   audioSrc?: string;
+  pendingUpdates?: {
+    updates: Record<string, string>;
+    labels: string[];
+    section: number;
+  };
 }
 
 const sectionNames = [
@@ -276,51 +281,93 @@ export function AIChatPanel({ currentSection, onClose, hasExistingDraft }: AICha
       const config = SECTION_FIELD_CONFIG[section];
       if (!config) return;
 
-      const updates: Partial<ProposalData> = {};
+      const updates: Record<string, string> = {};
       const updatedLabels: string[] = [];
 
       for (const field of config.fields) {
         const rawValue = fieldUpdates?.[field];
-        if (typeof rawValue === 'string' && rawValue.trim()) {
-          updates[field] = rawValue.trim();
-          updatedLabels.push(FIELD_LABELS[field] ?? field);
+        if (typeof rawValue === 'string') {
+          const trimmed = rawValue.trim();
+          if (trimmed) {
+            updates[field] = trimmed;
+            updatedLabels.push(FIELD_LABELS[field] ?? field);
+          }
         }
       }
 
-      if (Object.keys(updates).length > 0) {
-        updateMultipleFields(updates);
+      if (updatedLabels.length === 0) {
+        const fallbackField = config.fallback;
+        if (fallbackField) {
+          const trimmedReply = assistantReply.trim();
+          if (trimmedReply) {
+            updates[fallbackField] = trimmedReply;
+            updatedLabels.push(FIELD_LABELS[fallbackField] ?? fallbackField);
+          }
+        }
+      }
 
-        setTimeout(() => {
-          const notificationMessage: Message = {
-            id: Date.now().toString(),
-            type: 'system',
-            content:
-              updatedLabels.length === 1
-                ? `✨ Updated ${updatedLabels[0]}.`
-                : `✨ Updated fields: ${updatedLabels.join(', ')}.`,
-            timestamp: new Date(),
-          };
-          setMessages((prev) => [...prev, notificationMessage]);
-        }, 500);
+      if (updatedLabels.length === 0) {
         return;
       }
 
-      const fallbackField = config.fallback;
-      if (fallbackField && assistantReply.trim()) {
-        updateMultipleFields({ [fallbackField]: assistantReply.trim() } as Partial<ProposalData>);
-        setTimeout(() => {
-          const notificationMessage: Message = {
-            id: Date.now().toString(),
-            type: 'system',
-            content: `✨ Drafted ${FIELD_LABELS[fallbackField] ?? fallbackField} from the assistant's reply.`,
-            timestamp: new Date(),
-          };
-          setMessages((prev) => [...prev, notificationMessage]);
-        }, 500);
-      }
+      const actionMessage: Message = {
+        id: `${Date.now()}-auto-fill`,
+        type: 'action',
+        content:
+          updatedLabels.length === 1
+            ? `The assistant drafted an update for ${updatedLabels[0]}.`
+            : `The assistant drafted updates for ${updatedLabels.join(', ')}.`,
+        timestamp: new Date(),
+        pendingUpdates: {
+          updates,
+          labels: updatedLabels,
+          section,
+        },
+      };
+
+      setMessages((prev) => [...prev, actionMessage]);
+    },
+    [],
+  );
+
+  const handleApplyPendingUpdates = useCallback(
+    (messageId: string, pending: NonNullable<Message['pendingUpdates']>) => {
+      updateMultipleFields(pending.updates);
+
+      const confirmation: Message = {
+        id: `${Date.now()}-apply`,
+        type: 'system',
+        content:
+          pending.labels.length === 1
+            ? `✅ Applied ${pending.labels[0]}.`
+            : `✅ Applied updates to: ${pending.labels.join(', ')}.`,
+        timestamp: new Date(),
+      };
+
+      setMessages((prev) => {
+        const withoutPrompt = prev.filter((message) => message.id !== messageId);
+        return [...withoutPrompt, confirmation];
+      });
     },
     [updateMultipleFields],
   );
+
+  const handleSkipPendingUpdates = useCallback((messageId: string, labels: string[]) => {
+    const skipMessage: Message = {
+      id: `${Date.now()}-skip`,
+      type: 'system',
+      content:
+        labels.length === 1
+          ? `⏭️ Skipped auto-fill for ${labels[0]}.`
+          : `⏭️ Skipped auto-fill for: ${labels.join(', ')}.`,
+      timestamp: new Date(),
+    };
+
+    setMessages((prev) => {
+      const withoutPrompt = prev.filter((message) => message.id !== messageId);
+      return [...withoutPrompt, skipMessage];
+    });
+  }, []);
 
   const getActiveSectionName = useCallback(() => {
     if (currentSection <= 0) {
@@ -418,8 +465,6 @@ export function AIChatPanel({ currentSection, onClose, hasExistingDraft }: AICha
         section: currentSection > 0 ? currentSection : undefined,
       });
 
-      autoFillFields(currentSection, response.field_updates, response.message);
-
       const audioSrc = response.audio_base64
         ? playAudioFromBase64(response.audio_base64)
         : undefined;
@@ -433,6 +478,7 @@ export function AIChatPanel({ currentSection, onClose, hasExistingDraft }: AICha
       };
 
       setMessages((prev) => [...prev, aiMessage]);
+      autoFillFields(currentSection, response.field_updates, response.message);
     } catch (error) {
       const detail =
         error instanceof Error ? error.message : 'Unable to reach the assistant. Please try again.';
@@ -641,6 +687,45 @@ export function AIChatPanel({ currentSection, onClose, hasExistingDraft }: AICha
                         >
                           <RotateCcw className="w-3 h-3" />
                           {message.audioSrc ? 'Replay' : 'No Audio'}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {message.type === 'action' && message.pendingUpdates && (
+                <div className="flex justify-start">
+                  <div className="max-w-[90%]">
+                    <div className="bg-emerald-50 border border-emerald-200 rounded-2xl rounded-tl-sm p-4 shadow-sm">
+                      <p className="text-sm text-emerald-900 leading-relaxed">
+                        {message.content}
+                      </p>
+                      {message.pendingUpdates.labels.length > 1 && (
+                        <ul className="mt-2 text-xs text-emerald-800 list-disc list-inside space-y-1">
+                          {message.pendingUpdates.labels.map((label) => (
+                            <li key={label}>{label}</li>
+                          ))}
+                        </ul>
+                      )}
+                      <p className="text-xs text-emerald-700 mt-2">
+                        Apply these updates to the form?
+                      </p>
+                      <div className="flex items-center gap-2 mt-3">
+                        <Button
+                          size="sm"
+                          className="bg-emerald-600 hover:bg-emerald-700"
+                          onClick={() => handleApplyPendingUpdates(message.id, message.pendingUpdates!)}
+                        >
+                          Apply Updates
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="border-stone-300 text-stone-600 hover:bg-stone-100"
+                          onClick={() => handleSkipPendingUpdates(message.id, message.pendingUpdates!.labels)}
+                        >
+                          Not Now
                         </Button>
                       </div>
                     </div>
