@@ -80,7 +80,8 @@ export function DraftAnalysisPage({ draftFile, onContinue, onBack }: DraftAnalys
     }
 
     const sections = payload.map((item) => {
-      const score = Math.max(45, 95 - item.recommendations.length * 10);
+      const rawScore = typeof item.score === 'number' ? item.score : 65;
+      const score = Math.min(100, Math.max(0, Math.round(rawScore)));
       let status: AnalysisResult['sections'][number]['status'] = 'good';
 
       if (score >= 85) status = 'excellent';
@@ -100,12 +101,13 @@ export function DraftAnalysisPage({ draftFile, onContinue, onBack }: DraftAnalys
       sections.reduce((sum, section) => sum + section.score, 0) / sections.length;
 
     const strengths = sections
-      .filter((section) => section.score >= 80)
+      .filter((section) => section.score >= 80 && section.feedback.trim().length > 0)
       .map((section) => `${section.name}: ${section.feedback}`);
 
     const improvements = payload
-      .flatMap((item) => item.recommendations)
-      .map((tip) => `• ${tip}`);
+      .flatMap((item) => item.recommendations ?? [])
+      .filter((tip) => typeof tip === 'string' && tip.trim().length > 0)
+      .map((tip) => tip.trim());
 
     return {
       overallScore: Math.round(averageScore),
