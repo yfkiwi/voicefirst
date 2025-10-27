@@ -8,15 +8,15 @@ export interface DraftAnalysis {
 }
 
 export interface ProposalPayload {
-  projectTitle: string;
-  organizationName: string;
-  submissionDate?: string;
-  executiveSummary?: string;
-  communityBackground?: string;
-  problemDescription?: string;
+  project_title: string;
+  organization_name: string;
+  submission_date?: string;
+  executive_summary?: string;
+  community_background?: string;
+  problem_description?: string;
   objectives?: string[];
   milestones?: string[];
-  requestedAmount?: string;
+  requested_amount?: string;
   risks?: string;
 }
 
